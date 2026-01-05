@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OTP Sender Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f9;
+            padding: 30px;
+        }
+        .box {
+            background: #fff;
+            padding: 20px;
+            max-width: 700px;
+            margin: auto;
+            border-radius: 8px;
+        }
+        textarea, input {
+            width: 100%;
+            padding: 8px;
+            margin-top: 6px;
+        }
+        button {
+            margin-top: 15px;
+            padding: 10px;
+            width: 100%;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        table {
+            width: 100%;
+            margin-top: 20px;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+        }
+        th {
+            background: #eee;
+        }
+        .error {
+            color: red;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="box">
+    <h2>OTP Sender</h2>
+
+    {% if error %}
+        <div class="error">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST">
+        <label>Mobile Number(s)</label>
+        <textarea name="numbers" rows="4" placeholder="Enter one number or multiple numbers (comma or new line separated)"></textarea>
+
+        <label>Number of OTPs to send</label>
+        <input type="number" name="otp_count" value="1" min="1">
+
+        <button type="submit">Send OTP</button>
+    </form>
+
+    {% if results %}
+        <h3>Result</h3>
+        <table>
+            <tr>
+                <th>Mobile</th>
+                <th>Status</th>
+                <th>Sent Now</th>
+                <th>Total Sent</th>
+            </tr>
+            {% for r in results %}
+            <tr>
+                <td>{{ r.phone }}</td>
+                <td>{{ r.status }}</td>
+                <td>{{ r.sent_now }}</td>
+                <td>{{ r.total_sent }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    {% endif %}
+</div>
+
+</body>
+</html>
