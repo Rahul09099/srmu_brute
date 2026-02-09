@@ -1,3 +1,6 @@
+import telebot
+telebot.apihelper.THREAD_POOL_SIZE = 1
+telebot.apihelper.RETRY_ON_ERROR = True
 import os
 import time
 import threading
