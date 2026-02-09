@@ -1,4 +1,5 @@
 flask
-requests
-pyTelegramBotAPI
 gunicorn
+pyTelegramBotAPI
+requests
+urllib3
