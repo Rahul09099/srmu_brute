@@ -140,11 +140,10 @@ def ping(message):
 # ===================== TELEGRAM WEBHOOK =====================
 @app.route("/telegram-webhook", methods=["POST"])
 def telegram_webhook():
-    update = telebot.types.Update.de_json(
-        request.get_data().decode("utf-8")
-    )
+    update = telebot.types.Update.de_json(request.get_json())
     bot.process_new_updates([update])
     return "OK", 200
+
 
 
 # ===================== WEB DASHBOARD =====================
