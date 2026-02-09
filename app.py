@@ -157,28 +157,41 @@ def set_webhook():
 
 
 # ===================== FLASK DASHBOARD =====================
-
 @app.route("/", methods=["GET", "POST"])
 def index():
     results = []
     error = None
 
     if request.method == "POST":
-        numbers_raw = request.form.get("numbers", "")
-        otp_count = int(request.form.get("otp_count", "1"))
+        numbers_raw = request.form.get("numbers", "").strip()
+        otp_count = request.form.get("otp_count", "1").strip()
+
+        if not numbers_raw:
+            error = "Enter at least one number."
+            return render_template("index.html", error=error)
+
+        try:
+            otp_count = int(otp_count)
+            if otp_count <= 0:
+                raise ValueError
+        except ValueError:
+            error = "OTP count must be positive."
+            return render_template("index.html", error=error)
 
         numbers = [
-            n.strip() for n in numbers_raw.split(",")
+            n.strip() for n in numbers_raw.replace("\n", ",").split(",")
             if n.strip().isdigit()
         ]
 
         results = send_otps(numbers, otp_count)
 
-    return render_template_string(
-        HTML_TEMPLATE,
+    return render_template(
+        "index.html",
         results=results,
+        tracker=otp_tracker,
         error=error
     )
+
 
 
 # ===================== START APP =====================
