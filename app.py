@@ -18,6 +18,38 @@ API_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 bot = telebot.TeleBot(API_TOKEN)
 
 
+# ===================== ADD MISSING HTML TEMPLATE =====================
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SRMU OTP</title>
+</head>
+<body>
+    <h2>SRMU OTP Dashboard</h2>
+
+    {% if error %}
+        <p style="color:red">{{ error }}</p>
+    {% endif %}
+
+    <form method="POST">
+        <input name="numbers" placeholder="9876543210,1234567890">
+        <input name="otp_count" value="1">
+        <button>Send OTP</button>
+    </form>
+
+    {% if results %}
+        <h3>Results</h3>
+        {% for r in results %}
+            <p>{{ r.phone }} → {{ r.status }} | Sent: {{ r.sent_now }}</p>
+        {% endfor %}
+    {% endif %}
+</body>
+</html>
+"""
+
+
 # ===================== CORE FUNCTION =====================
 
 def send_otps(numbers, otp_count):
@@ -59,13 +91,13 @@ def send_otps(numbers, otp_count):
     return batch_results
 
 
-# ===================== TELEGRAM BOT HANDLERS =====================
+# ===================== TELEGRAM BOT =====================
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     bot.reply_to(
         message,
-        "Welcome!\nUse:\n/send <phone1,phone2> <count>\nExample:\n/send 9876543210,1234567890 5"
+        "Use:\n/send <phone1,phone2> <count>\nExample:\n/send 9876543210,1234567890 5"
     )
 
 
@@ -79,52 +111,25 @@ def handle_send_otp(message):
             return
 
         phones_raw = args[1]
-        otp_count_raw = args[2]
-
-        try:
-            otp_count = int(otp_count_raw)
-            if otp_count <= 0:
-                raise ValueError
-        except ValueError:
-            bot.reply_to(message, "OTP count must be positive number.")
-            return
+        otp_count = int(args[2])
 
         numbers = [
             n.strip() for n in phones_raw.split(",")
             if n.strip().isdigit()
         ]
 
-        if not numbers:
-            bot.reply_to(message, "Invalid phone numbers.")
-            return
-
-        bot.reply_to(message, f"🚀 Sending OTP to {len(numbers)} numbers...")
-
         results = send_otps(numbers, otp_count)
 
         response = ["✅ OTP Result:"]
         for r in results:
             response.append(
-                f"📱 {r['phone']} → {r['status']} | Sent: {r['sent_now']} | Total: {r['total_sent']}"
+                f"{r['phone']} → {r['status']} | Sent: {r['sent_now']}"
             )
 
         bot.reply_to(message, "\n".join(response))
 
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
-
-
-@bot.message_handler(commands=['status'])
-def handle_status(message):
-    if not otp_tracker:
-        bot.reply_to(message, "No activity yet.")
-        return
-
-    msg = "📊 OTP Tracker:\n"
-    for phone, total in otp_tracker.items():
-        msg += f"📱 {phone}: {total}\n"
-
-    bot.reply_to(message, msg)
 
 
 # ===================== TELEGRAM WEBHOOK =====================
@@ -141,7 +146,7 @@ def set_webhook():
     WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
     if not WEBHOOK_URL:
-        print("❌ WEBHOOK_URL not set in env!")
+        print("❌ WEBHOOK_URL not set!")
         return
 
     bot.remove_webhook()
@@ -159,23 +164,11 @@ def index():
     error = None
 
     if request.method == "POST":
-        numbers_raw = request.form.get("numbers", "").strip()
-        otp_count = request.form.get("otp_count", "1").strip()
-
-        if not numbers_raw:
-            error = "Enter at least one number."
-            return render_template_string(HTML_TEMPLATE, error=error)
-
-        try:
-            otp_count = int(otp_count)
-            if otp_count <= 0:
-                raise ValueError
-        except ValueError:
-            error = "OTP count must be positive."
-            return render_template_string(HTML_TEMPLATE, error=error)
+        numbers_raw = request.form.get("numbers", "")
+        otp_count = int(request.form.get("otp_count", "1"))
 
         numbers = [
-            n.strip() for n in numbers_raw.replace("\n", ",").split(",")
+            n.strip() for n in numbers_raw.split(",")
             if n.strip().isdigit()
         ]
 
@@ -184,7 +177,6 @@ def index():
     return render_template_string(
         HTML_TEMPLATE,
         results=results,
-        tracker=otp_tracker,
         error=error
     )
 
