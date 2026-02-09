@@ -13,8 +13,10 @@ OTP_GEN_URL = "https://twofa.srmu.ac.in/otp/generate"
 
 otp_tracker = {}
 
-API_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
+# ===== TELEGRAM BOT SETUP =====
+API_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 bot = telebot.TeleBot(API_TOKEN)
+
 
 # ===================== CORE FUNCTION =====================
 
@@ -30,7 +32,7 @@ def send_otps(numbers, otp_count):
 
         for _ in range(otp_count):
             try:
-                resp = session.post(f"{OTP_GEN_URL}/{phone}/123", timeout=10)
+                session.post(f"{OTP_GEN_URL}/{phone}/123", timeout=10)
 
                 sent += 1
                 otp_tracker[phone] += 1
@@ -57,7 +59,7 @@ def send_otps(numbers, otp_count):
     return batch_results
 
 
-# ===================== TELEGRAM BOT =====================
+# ===================== TELEGRAM BOT HANDLERS =====================
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
@@ -125,7 +127,31 @@ def handle_status(message):
     bot.reply_to(message, msg)
 
 
-# ===================== FLASK PART =====================
+# ===================== TELEGRAM WEBHOOK =====================
+
+@app.route("/telegram-webhook", methods=["POST"])
+def telegram_webhook():
+    json_str = request.get_data().decode("UTF-8")
+    update = telebot.types.Update.de_json(json_str)
+    bot.process_new_updates([update])
+    return "OK", 200
+
+
+def set_webhook():
+    WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
+
+    if not WEBHOOK_URL:
+        print("❌ WEBHOOK_URL not set in env!")
+        return
+
+    bot.remove_webhook()
+    time.sleep(1)
+
+    bot.set_webhook(url=WEBHOOK_URL)
+    print("✅ Webhook set to:", WEBHOOK_URL)
+
+
+# ===================== FLASK DASHBOARD =====================
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -163,25 +189,8 @@ def index():
     )
 
 
-# ===================== RUN MODE =====================
+# ===================== START APP =====================
 
 if __name__ == "__main__":
-
-    MODE = os.environ.get("MODE", "WEB")  
-    # WEB / BOT / BOTH
-
-    if MODE == "BOT":
-        print("Starting Telegram Bot...")
-        bot.infinity_polling()
-
-    elif MODE == "WEB":
-        print("Starting Flask Web...")
-        app.run(debug=True, port=5000)
-
-    else:
-        # Run both using thread
-        from threading import Thread
-
-        Thread(target=lambda: app.run(port=5000)).start()
-        print("Starting Telegram Bot...")
-        bot.infinity_polling()
+    set_webhook()
+    app.run(host="0.0.0.0", port=10000)
