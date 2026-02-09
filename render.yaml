@@ -1,0 +1,22 @@
+services:
+  # Web Service for the Flask Dashboard
+  - type: web
+    name: otp-express-web
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn srmu:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.0
+
+  # Background Worker for the Telegram Bot
+  - type: worker
+    name: otp-express-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false # User will set this in Render UI
+      - key: PYTHON_VERSION
+        value: 3.10.0
