@@ -5,6 +5,7 @@ import telebot
 from flask import Flask, render_template, request
 import urllib3
 import threading
+import sys
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -16,7 +17,21 @@ otp_tracker = {}
 
 # ===== TELEGRAM BOT SETUP =====
 API_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-bot = telebot.TeleBot(API_TOKEN)
+
+print("--- BOT STARTUP CHECK ---")
+if not API_TOKEN:
+    print("❌ CRITICAL: TELEGRAM_BOT_TOKEN environment variable is NOT SET!")
+else:
+    print(f"✅ TELEGRAM_BOT_TOKEN found")
+
+try:
+    bot = telebot.TeleBot(API_TOKEN)
+    bot_info = bot.get_me()
+    print(f"✅ Connected to Telegram API as: @{bot_info.username}")
+except Exception as e:
+    print(f"❌ Failed to connect to Telegram API: {e}")
+    # Don't exit, let Flask run for debugging logs, but bot won't work
+print("-------------------------")
 
 
 # ===================== CORE FUNCTION =====================
@@ -64,18 +79,24 @@ def send_otps(numbers, otp_count):
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
-    bot.reply_to(
-        message,
-        "Welcome to OTP Express!\n\n"
-        "Use command:\n"
-        "/send <phone1,phone2> <count>\n\n"
-        "Example:\n"
-        "/send 9876543210,1234567890 5"
-    )
+    print(f"📩 Received /start command from {message.chat.id}")
+    try:
+        bot.reply_to(
+            message,
+            "Welcome to OTP Express!\n\n"
+            "Use command:\n"
+            "/send <phone1,phone2> <count>\n\n"
+            "Example:\n"
+            "/send 9876543210,1234567890 5"
+        )
+        print("✅ Reply sent for /start")
+    except Exception as e:
+        print(f"❌ Error replying to /start: {e}")
 
 
 @bot.message_handler(commands=['send'])
 def handle_send_otp(message):
+    print(f"📩 Received /send command from {message.chat.id}")
     try:
         args = message.text.split()
 
@@ -103,10 +124,12 @@ def handle_send_otp(message):
             return
 
         # Respond immediately so webhook doesn't time out
+        print("🚀 Starting background task for OTP sending...")
         bot.reply_to(message, f"🚀 Sending OTP to {len(numbers)} numbers (running in background)...")
 
         # Define the task to run in background
         def task():
+            print("🧵 Background thread started")
             try:
                 results = send_otps(numbers, otp_count)
 
@@ -116,21 +139,22 @@ def handle_send_otp(message):
                         f"📱 {r['phone']} → {r['status']} | Sent: {r['sent_now']} | Total: {r['total_sent']}"
                     )
 
-                bot.reply_to(message, "\n".join(response))
+                bot.send_message(message.chat.id, "\n".join(response))
+                print("✅ Background task finished and result sent")
             except Exception as inner_e:
-                # Need a way to log this, but referencing 'message' might be stale if very long.
-                # However for a simple bot this is usually fine.
-                print(f"Error in background task: {inner_e}")
+                print(f"❌ Error in background task: {inner_e}")
 
         # Start background thread
         threading.Thread(target=task).start()
 
     except Exception as e:
+        print(f"❌ Error handling /send: {e}")
         bot.reply_to(message, f"❌ Error: {str(e)}")
 
 
 @bot.message_handler(commands=['status'])
 def handle_status(message):
+    print(f"📩 Received /status command from {message.chat.id}")
     if not otp_tracker:
         bot.reply_to(message, "No activity yet.")
         return
@@ -146,24 +170,43 @@ def handle_status(message):
 
 @app.route("/telegram-webhook", methods=["POST"])
 def telegram_webhook():
+    print("🔔 Webhook hit received")
+    if not request.stream:
+         print("⚠️ No data stream in request")
+         return "OK", 200
+
     json_str = request.get_data().decode("UTF-8")
-    update = telebot.types.Update.de_json(json_str)
-    bot.process_new_updates([update])
+    print(f"📝 Raw Payload: {json_str}")
+
+    try:
+        update = telebot.types.Update.de_json(json_str)
+        print(f"🔎 Update object: {update}")
+        bot.process_new_updates([update])
+        print("✅ Update processed successfully")
+    except Exception as e:
+        print(f"❌ Error processing update: {e}")
+        import traceback
+        traceback.print_exc()
+
     return "OK", 200
 
 
 def set_webhook():
+    print("🔗 Setting webhook...")
     WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
     if not WEBHOOK_URL:
         print("❌ WEBHOOK_URL not set in env!")
         return
 
-    bot.remove_webhook()
-    time.sleep(1)
+    try:
+        bot.remove_webhook()
+        time.sleep(1)
 
-    bot.set_webhook(url=WEBHOOK_URL)
-    print("✅ Webhook set to:", WEBHOOK_URL)
+        bot.set_webhook(url=WEBHOOK_URL)
+        print("✅ Webhook set to:", WEBHOOK_URL)
+    except Exception as e:
+        print(f"❌ Failed to set webhook: {e}")
 
 
 # ===================== FLASK DASHBOARD =====================
@@ -207,5 +250,10 @@ def index():
 # ===================== START APP =====================
 
 if __name__ == "__main__":
+    # Note: This block might not run on Gunicorn!
+    print("🚀 App starting in __main__")
     set_webhook()
     app.run(host="0.0.0.0", port=10000)
+else:
+    # If running with Gunicorn, this runs instead
+    print(f"🚀 App starting as module: {__name__}")
