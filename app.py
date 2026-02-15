@@ -253,7 +253,7 @@ if __name__ == "__main__":
     # Note: This block might not run on Gunicorn!
     print("🚀 App starting in __main__")
     set_webhook()
-    app.run(host="0.0.0.0", port=10000)
+    app.run()
 else:
     # If running with Gunicorn, this runs instead
     print(f"🚀 App starting as module: {__name__}")
