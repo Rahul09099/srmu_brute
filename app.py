@@ -25,7 +25,8 @@ else:
     print(f"✅ TELEGRAM_BOT_TOKEN found")
 
 try:
-    bot = telebot.TeleBot(API_TOKEN)
+    # DISABLE THREADING to ensure handlers run synchronously in the webhook response cycle
+    bot = telebot.TeleBot(API_TOKEN, threaded=False)
     bot_info = bot.get_me()
     print(f"✅ Connected to Telegram API as: @{bot_info.username}")
 except Exception as e:
@@ -74,6 +75,15 @@ def send_otps(numbers, otp_count):
 
     return batch_results
 
+
+# ===================== DEBUG HANDLER =====================
+
+@bot.message_handler(func=lambda m: True, content_types=['text'])
+def debug_catch_all(message):
+    print(f"⚠️ DEBUG: Catch-all handler triggered! Text: '{message.text}'")
+    # Only reply if it's NOT a command (commands are handled specifically)
+    if not message.text.startswith('/'):
+        bot.reply_to(message, "DEBUG: I received your message, but it didn't match /start or /send.")
 
 # ===================== TELEGRAM BOT HANDLERS =====================
 
@@ -253,7 +263,7 @@ if __name__ == "__main__":
     # Note: This block might not run on Gunicorn!
     print("🚀 App starting in __main__")
     set_webhook()
-    app.run()
+    app.run(host="0.0.0.0", port=10000)
 else:
     # If running with Gunicorn, this runs instead
     print(f"🚀 App starting as module: {__name__}")
